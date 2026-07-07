@@ -1,35 +1,48 @@
-# Adaptive Brightness Fix
+# OneUI ROM Brightness Fix
 
-A Magisk module that permanently fixes broken adaptive brightness on ported Samsung OneUI 8 ROMs.
+A Magisk module that fixes broken brightness and adaptive brightness on Samsung devices running custom OneUI ROMs or kernels.
 
-## The problem
+## Who this is for
 
-When a Samsung ROM built for one phone (like the Galaxy S23 Ultra) is ported to different hardware (like the Note 20 Ultra), the brightness system breaks. The part of the software responsible for controlling the screen backlight — the "lights HAL" — doesn't know how to talk to the new phone's display hardware. The result: the screen is permanently stuck at maximum brightness, and the brightness slider does nothing. Adaptive (automatic) brightness is completely non-functional.
+If you're running a **custom ROM or kernel** on a Samsung phone and your brightness is stuck on max, your slider does nothing, or adaptive brightness doesn't work — this module is for you.
 
-## What this module does
+This commonly happens when:
+- A ROM built for one Samsung phone is ported to a different model
+- A custom kernel changes the display driver behavior
+- The lights HAL (the software that controls screen brightness) doesn't match your phone's actual display hardware
 
-This module works around the problem in two steps:
+**This module is NOT needed if your stock brightness already works.** It's specifically for cases where the brightness system is broken.
 
-1. **Blocks the broken brightness controller.** At boot, before the broken lights HAL starts up, the module changes the permissions on the backlight control file so that only root can write to it. The broken HAL silently fails to write, and the screen is no longer forced to max brightness.
+## What it does
 
-2. **Replaces it with a working one.** A small native daemon (~9KB) runs in the background and takes over brightness control. It reads the ambient light sensor directly using Android's built-in sensor API — no extra apps or frameworks needed. It adjusts the screen brightness smoothly based on the ambient light, just like the stock adaptive brightness you're used to.
+When the brightness is broken on a custom ROM, it's usually because the lights HAL — the piece of software that translates "set brightness to 50%" into actual hardware commands — is sending the wrong values to your screen's backlight controller. On affected devices, the HAL typically writes maximum brightness regardless of what you set the slider to.
 
-### Features
+This module fixes that in two steps:
 
-- Adaptive brightness that actually works — smoothly adjusts based on ambient light
-- Slider adjustments in auto mode are respected and remembered (just like stock)
-- Manual brightness mode works normally when adaptive is turned off
-- Smooth transitions with no flickering
-- Tiny footprint: single 9KB binary, no Java, no frameworks, no dependencies
-- Survives reboots (installed as a Magisk module)
+1. **Blocks the broken HAL.** At boot, before the broken lights HAL starts up, the module changes file permissions so the HAL can no longer write to the backlight. It doesn't crash or interfere with the HAL process — the writes just silently fail.
+
+2. **Runs its own brightness controller.** A small native daemon (~9KB) starts at boot and takes over. It reads your phone's ambient light sensor directly using Android's built-in sensor API and adjusts the screen brightness smoothly — just like the adaptive brightness you're used to on a stock ROM.
+
+### What works after installing
+
+- **Adaptive brightness** — screen adjusts automatically based on ambient light
+- **Slider adjustments** — dragging the slider in auto mode shifts the brightness curve, just like stock (your adjustments are remembered)
+- **Manual mode** — turning off adaptive brightness gives you full manual slider control
+- **Smooth transitions** — no flickering, no sudden jumps
+- **Reboots** — the fix is permanent (installed as a Magisk module)
 
 ## Compatibility
 
-This module was developed and tested on:
+Developed and tested on:
 
-- **Galaxy Note 20 Ultra (SM-N9860, Snapdragon 865+)** running [Astro-OS v3.x](https://xdaforums.com/t/closed-astro-os-oneui-8-0-galaxy-note20-series-snapdragon-s23-ultra-port-version-3-1-0-ai-port-camera-enhancements-optimize.4786282/) (S23 Ultra port)
+- **Galaxy Note 20 Ultra (SM-N9860, Snapdragon 865+)** running [Astro-OS v3.x](https://xdaforums.com/t/closed-astro-os-oneui-8-0-galaxy-note20-series-snapdragon-s23-ultra-port-version-3-1-0-ai-port-camera-enhancements-optimize.4786282/) (OneUI 8, S23 Ultra port)
 
-It should work on **any Qualcomm-based Samsung device** running a ported OneUI 8 ROM where the brightness is broken due to a mismatched lights HAL. The module targets the standard Qualcomm MDSS backlight path (`/sys/class/backlight/panel0-backlight/brightness`).
+Should work on any Samsung device where:
+- The brightness is broken due to a mismatched lights HAL
+- The backlight is controlled via `/sys/class/backlight/panel0-backlight/brightness` (standard Qualcomm MDSS path)
+- The ambient light sensor is functional
+
+While designed for the Snapdragon Note 20 Ultra running Astro-OS OneUI 8, the underlying approach should work across modern OneUI ROMs on older Qualcomm-based Samsung devices with similar brightness issues.
 
 **Requirements:**
 - Magisk v20.4 or newer
@@ -38,53 +51,61 @@ It should work on **any Qualcomm-based Samsung device** running a ported OneUI 8
 
 ## Installation
 
-1. Download the latest release ZIP from the [Releases](https://github.com/combeng6th/brightness-fix/releases) page
-2. Open Magisk Manager
-3. Go to Modules → Install from storage
-4. Select the ZIP file
-5. Reboot
+1. Download `oneui-brightness-fix-v1.0.zip` from the [Releases](https://github.com/combeng6th/oneui-brightness-fix/releases) page
+2. Open **Magisk Manager** → **Modules** → **Install from storage**
+3. Select the ZIP file
+4. Reboot
 
-After rebooting, adaptive brightness should work immediately. You can toggle it on/off from the notification shade as usual.
+After rebooting, brightness should work immediately. Toggle adaptive brightness on or off from the notification shade as usual.
+
+## Uninstalling
+
+Open Magisk Manager → Modules → tap the trash icon next to "OneUI ROM Brightness Fix" → Reboot. Your original brightness behavior (even if broken) will be restored.
 
 ## Tuning
 
-If the brightness feels too bright or too dim overall, you can adjust the curve by editing the `AUTO_K` value in `brightd.c` and recompiling:
+The default brightness curve works well for most indoor and outdoor conditions. If you want to adjust it:
 
-```
-#define AUTO_K 50   /* lower = brighter at same light level */
+Edit the `AUTO_K` value in `brightd.c`:
+```c
+#define AUTO_K 50   /* lower number = brighter at the same light level */
 ```
 
-Rebuild with:
+Rebuild:
 ```
 clang -O2 -Wall -o brightd brightd.c -ldl && llvm-strip brightd
 ```
 
-Then replace the `brightd` binary in the module directory and reboot.
+Replace the binary in `/data/adb/modules/oneui_brightness_fix/brightd` and reboot.
 
-## How it works (technical)
+## How it works (technical details)
 
-The daemon (`brightd`) uses `dlopen` to load Android's `libandroid.so` at runtime and registers a light sensor listener via the `ASensorManager` NDK API. Sensor events arrive directly into the process — no polling, no process forks, no shell commands.
+The daemon (`brightd`) uses `dlopen` to load Android's `libandroid.so` at runtime and registers a light sensor listener via the `ASensorManager` NDK API. Sensor events arrive directly into the process with zero process forks.
 
-The brightness pipeline:
+The full brightness pipeline:
 
 ```
 sensor lux → median filter (5 samples) → asymmetric EMA → saturation curve → user offset → hysteresis → proportional ramp → sysfs write
 ```
 
-- **Median filter** rejects sensor noise spikes
-- **Asymmetric EMA** responds quickly to brightening (0.3s), slowly to darkening (1.2s)
-- **Saturation curve** (`lux × max / (lux + K)`) maps lux to backlight perceptually
-- **User offset** captures slider adjustments and applies them persistently
-- **Hysteresis** prevents micro-jitter from residual noise
-- **Proportional ramp** animates transitions smoothly
+| Stage | Purpose |
+|-------|---------|
+| **Median filter** | Rejects sensor noise spikes (window of 5 at 100ms intervals) |
+| **Asymmetric EMA** | Fast response to brightening (0.3s), gradual darkening (1.2s) |
+| **Saturation curve** | `lux * max / (lux + K)` — perceptual mapping that mimics human eye response |
+| **User offset** | Captures slider adjustments and applies them persistently across lux changes |
+| **Hysteresis** | Ignores small fluctuations to prevent visible jitter |
+| **Proportional ramp** | Animates transitions — large changes ramp fast, small changes ramp gently |
 
-If the NDK sensor API is unavailable, the daemon falls back to parsing `dumpsys sensorservice` output (one fork per second).
+If the NDK sensor API is unavailable on your device, the daemon falls back to parsing `dumpsys sensorservice` (one fork per second).
+
+The HAL lockout works by setting the backlight sysfs node to `root:root 0644` in `post-fs-data.sh`, which runs before HAL services start. The HAL opens the file read-only and its writes silently fail. The daemon runs as root and is unaffected.
 
 ## Credits
 
-This module exists because of [Astro-OS](https://xdaforums.com/t/closed-astro-os-oneui-8-0-galaxy-note20-series-snapdragon-s23-ultra-port-version-3-1-0-ai-port-camera-enhancements-optimize.4786282/), an excellent S23 Ultra port for the Note 20 series by the Astro-OS team on XDA. The ROM itself is fantastic — this module just fixes one hardware-specific issue that comes with running a ported ROM on different display hardware.
+This module was built to fix a hardware-specific brightness issue on [Astro-OS](https://xdaforums.com/t/closed-astro-os-oneui-8-0-galaxy-note20-series-snapdragon-s23-ultra-port-version-3-1-0-ai-port-camera-enhancements-optimize.4786282/), an S23 Ultra port for the Galaxy Note 20 series by the Astro-OS team on XDA Developers. The ROM itself is excellent — this module simply addresses one side effect of running a ported ROM on different display hardware.
 
-I am not affiliated with the Astro-OS project. Just a grateful user.
+I am not affiliated with the Astro-OS project in any way. Just a grateful user giving back.
 
 ## License
 
