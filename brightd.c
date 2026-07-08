@@ -1,9 +1,12 @@
 /*
- * brightd — Native brightness daemon for Astro-OS (S23U on Note 20 Ultra)
+ * brightd — Native brightness daemon for Samsung OneUI custom ROMs
  *
- * The broken S23U lights HAL is locked out at boot (post-fs-data.sh sets
- * the backlight sysfs to root-only writable). This daemon is the sole
- * brightness controller.
+ * Dynamically discovers the backlight sysfs path at startup by scanning
+ * /sys/class/backlight/ for devices with max_brightness > 0. Picks the
+ * device with the highest max (primary panel on foldables).
+ *
+ * The broken lights HAL is locked out at boot (post-fs-data.sh).
+ * This daemon is the sole brightness controller.
  *
  * Sensor: ASensorManager via dlopen (zero forks), dumpsys fallback.
  * Filter: median-of-5 -> asymmetric EMA -> user offset -> hysteresis -> ramp.
@@ -17,27 +20,27 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <dlfcn.h>
+#include <dirent.h>
 #include <time.h>
 #include <stdint.h>
 
-#define BKLT_PATH  "/sys/class/backlight/panel0-backlight/brightness"
-#define BKLT_MAX   "/sys/class/backlight/panel0-backlight/max_brightness"
+#define BKLT_CLASS "/sys/class/backlight"
 #define LIBANDROID "/system/lib64/libandroid.so"
 
 #define DEFAULT_MAX_HW 510
 #define MIN_HW       2
 #define MAX_SW       255
-#define AUTO_K       50      /* curve midpoint: 50% at 50 lux */
-#define EMA_UP       0.30f   /* brightening EMA: 63% in ~0.3s */
-#define EMA_DOWN     0.08f   /* darkening EMA: 63% in ~1.2s */
+#define AUTO_K       50
+#define EMA_UP       0.30f
+#define EMA_DOWN     0.08f
 #define HYSTERESIS   6
 #define MIN_STEP     1
-#define RAMP_DIV     8       /* ramp speed: full range in ~1.2s */
+#define RAMP_DIV     8
 #define FRAME_MS     150
 #define MODE_CHECK_S 5
-#define SLIDER_CHECK_FRAMES 7  /* check slider every 7 frames ~ 1s */
+#define SLIDER_CHECK_FRAMES 7
 #define MEDIAN_WIN   5
-#define SENSOR_RATE_US 100000  /* 100ms = 10 samples/sec */
+#define SENSOR_RATE_US 100000
 #define ASENSOR_TYPE_LIGHT 5
 
 typedef struct {
@@ -64,6 +67,8 @@ static int     (*fn_looper_poll)(int, int*, int*, void**);
 
 static int sensor_api_ok = 0;
 static ASensorEventQueue *sensor_queue;
+
+static char bklt_path[256] = "";
 static int max_hw = DEFAULT_MAX_HW;
 
 static int lux_ring[MEDIAN_WIN], lux_n = 0, lux_idx = 0;
@@ -86,7 +91,6 @@ static int median_lux(void) {
     return (lux_n & 1) ? s[lux_n/2] : (s[lux_n/2-1] + s[lux_n/2]) / 2;
 }
 
-/* Map lux to backlight using saturation curve */
 static int lux_to_bl(int lux) {
     if (lux <= 0) return MIN_HW;
     int bl = lux * max_hw / (lux + AUTO_K);
@@ -95,7 +99,6 @@ static int lux_to_bl(int lux) {
     return bl;
 }
 
-/* Map 0-255 slider to backlight (same formula as manual mode) */
 static int slider_to_bl(int sw) {
     if (sw >= MAX_SW) return max_hw;
     if (sw <= 0) return MIN_HW;
@@ -103,9 +106,7 @@ static int slider_to_bl(int sw) {
 }
 
 static int clamp(int v, int lo, int hi) {
-    if (v < lo) return lo;
-    if (v > hi) return hi;
-    return v;
+    return v < lo ? lo : v > hi ? hi : v;
 }
 
 static int read_sysfs_int(const char *p) {
@@ -132,6 +133,51 @@ static int popen_int(const char *c) {
 static void msleep(int ms) {
     struct timespec t = { ms/1000, (ms%1000)*1000000L };
     nanosleep(&t, NULL);
+}
+
+/*
+ * Scan /sys/class/backlight/ for the real backlight device.
+ * Picks the entry with the highest max_brightness > 0.
+ * Dummy/virtual devices (like "panel") have max_brightness = 0.
+ * Returns 1 if found, 0 if falling back to defaults.
+ */
+static int discover_backlight(void) {
+    DIR *dir = opendir(BKLT_CLASS);
+    if (!dir) return 0;
+
+    struct dirent *ent;
+    int best_max = 0;
+    char cand_path[256];
+
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+
+        char max_path[256], br_path[256];
+        snprintf(max_path, sizeof(max_path), "%s/%s/max_brightness",
+                 BKLT_CLASS, ent->d_name);
+        snprintf(br_path, sizeof(br_path), "%s/%s/brightness",
+                 BKLT_CLASS, ent->d_name);
+
+        int mx = read_sysfs_int(max_path);
+        if (mx <= 0) continue;
+
+        /* Verify the brightness file is readable too */
+        int br = read_sysfs_int(br_path);
+        if (br < 0) continue;
+
+        if (mx > best_max) {
+            best_max = mx;
+            snprintf(cand_path, sizeof(cand_path), "%s", br_path);
+        }
+    }
+    closedir(dir);
+
+    if (best_max > 0) {
+        strncpy(bklt_path, cand_path, sizeof(bklt_path) - 1);
+        max_hw = best_max;
+        return 1;
+    }
+    return 0;
 }
 
 static int init_sensor_api(void) {
@@ -180,6 +226,7 @@ static void read_lux_dumpsys(void) {
 }
 
 int main(void) {
+    /* Wait for boot */
     for (;;) {
         FILE *f = popen("getprop sys.boot_completed","r");
         if (f) { char b[8]; if (fgets(b,8,f)&&b[0]=='1') { pclose(f); break; } pclose(f); }
@@ -187,8 +234,14 @@ int main(void) {
     }
     msleep(3000);
 
-    int hw_max = read_sysfs_int(BKLT_MAX);
-    if (hw_max > 0) max_hw = hw_max;
+    /* Discover backlight device */
+    if (!discover_backlight()) {
+        /* Fallback to the standard Qualcomm MDSS path */
+        snprintf(bklt_path, sizeof(bklt_path),
+                 "%s/panel0-backlight/brightness", BKLT_CLASS);
+        int mx = read_sysfs_int(BKLT_CLASS "/panel0-backlight/max_brightness");
+        if (mx > 0) max_hw = mx;
+    }
 
     sensor_api_ok = init_sensor_api();
 
@@ -198,14 +251,8 @@ int main(void) {
     int fpm = (MODE_CHECK_S*1000)/FRAME_MS;
     int dpf = 1000/FRAME_MS;
 
-    /* User offset: accumulated slider adjustments in auto mode.
-     * When the user drags the slider, the delta between the slider's
-     * backlight and the sensor's auto backlight is captured. This offset
-     * persists and is added to subsequent auto computations, matching
-     * stock adaptive brightness behavior. */
     int user_offset = 0;
-    int prev_slider_sw = -1;    /* last known slider value */
-    (void)0;
+    int prev_slider_sw = -1;
 
     for (;;) {
         mctr = (mctr+1) % fpm;
@@ -214,20 +261,13 @@ int main(void) {
             int m = popen_int("settings get system screen_brightness_mode");
             if (m < 0) m = 0;
             if (m != mode) {
-                mode = m;
-                smooth = -1; ramp = -1;
+                mode = m; smooth = -1; ramp = -1;
                 lux_n = lux_idx = 0;
-                user_offset = 0;
-                prev_slider_sw = -1;
+                user_offset = 0; prev_slider_sw = -1;
             }
         }
 
         if (mode == 1) {
-            /* ============================================= */
-            /* ADAPTIVE BRIGHTNESS                           */
-            /* ============================================= */
-
-            /* Collect sensor events */
             if (sensor_api_ok) {
                 fn_looper_poll(FRAME_MS, NULL, NULL, NULL);
                 drain_sensor();
@@ -237,7 +277,6 @@ int main(void) {
                 msleep(FRAME_MS);
             }
 
-            /* Median + asymmetric EMA (fast brighten, slow darken) */
             int med = median_lux();
             if (smooth < 0) smooth = (float)med;
             else {
@@ -245,46 +284,35 @@ int main(void) {
                 smooth += ((float)med - smooth) * alpha;
             }
 
-            /* Sensor-only backlight (before user offset) */
             int auto_bl = lux_to_bl((int)(smooth + 0.5f));
-            /* Poll slider periodically (1 fork/sec) to detect user adjustments */
+
             slider_ctr = (slider_ctr + 1) % SLIDER_CHECK_FRAMES;
             if (slider_ctr == 0) {
                 int sw = popen_int("settings get system screen_brightness");
                 if (sw >= 0) {
-                    if (prev_slider_sw >= 0 && sw != prev_slider_sw) {
-                        /* User moved the slider: capture the new offset.
-                         * offset = what the user wants minus what the sensor computed */
+                    if (prev_slider_sw >= 0 && sw != prev_slider_sw)
                         user_offset = slider_to_bl(sw) - auto_bl;
-                    }
                     prev_slider_sw = sw;
                 }
             }
 
-            /* Apply user offset to sensor-driven backlight */
             int tgt = clamp(auto_bl + user_offset, MIN_HW, max_hw);
 
-            /* Hysteresis */
             if (ramp < 0) ramp = tgt;
             else if (abs(tgt - ramp) > HYSTERESIS) ramp = tgt;
 
-            /* Init */
-            if (cur_bl < 0) { cur_bl = ramp; write_sysfs_int(BKLT_PATH, cur_bl); }
+            if (cur_bl < 0) { cur_bl = ramp; write_sysfs_int(bklt_path, cur_bl); }
 
-            /* Proportional ramp */
             if (cur_bl != ramp) {
                 int d = abs(ramp - cur_bl);
                 int step = d / RAMP_DIV;
                 if (step < MIN_STEP) step = MIN_STEP;
                 if (ramp > cur_bl) { cur_bl += step; if (cur_bl > ramp) cur_bl = ramp; }
                 else { cur_bl -= step; if (cur_bl < ramp) cur_bl = ramp; }
-                write_sysfs_int(BKLT_PATH, cur_bl);
+                write_sysfs_int(bklt_path, cur_bl);
             }
         } else {
-            /* ============================================= */
-            /* MANUAL BRIGHTNESS                             */
-            /* ============================================= */
-            int hw = read_sysfs_int(BKLT_PATH);
+            int hw = read_sysfs_int(bklt_path);
             if (hw != cur_bl) {
                 int s = popen_int("settings get system screen_brightness");
                 if (s >= 0) msw = s;
@@ -298,7 +326,7 @@ int main(void) {
 
             int tgt = slider_to_bl(msw);
 
-            if (hw != tgt) { write_sysfs_int(BKLT_PATH, tgt); cur_bl = tgt; msleep(50); }
+            if (hw != tgt) { write_sysfs_int(bklt_path, tgt); cur_bl = tgt; msleep(50); }
             else { cur_bl = tgt; msleep(FRAME_MS); }
         }
     }

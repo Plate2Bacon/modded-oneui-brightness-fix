@@ -1,6 +1,10 @@
 #!/system/bin/sh
-# Lock the backlight sysfs to root-only write BEFORE the lights HAL starts.
-# The HAL always writes 510 regardless of input. Blocking it at the
-# permission level eliminates flicker — the daemon is the sole writer.
-chown root:root /sys/class/backlight/panel0-backlight/brightness
-chmod 644 /sys/class/backlight/panel0-backlight/brightness
+# Lock all real backlight sysfs nodes to root-only write.
+# Scans /sys/class/backlight/ and locks any device with max_brightness > 0.
+# Dummy/virtual devices (max=0) are skipped.
+for d in /sys/class/backlight/*/; do
+    max=$(cat "$d/max_brightness" 2>/dev/null)
+    [ "$max" -gt 0 ] 2>/dev/null || continue
+    chown root:root "$d/brightness"
+    chmod 644 "$d/brightness"
+done
