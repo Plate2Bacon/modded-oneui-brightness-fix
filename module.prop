@@ -1,7 +1,7 @@
 id=oneui_brightness_fix
-name=OneUI ROM Brightness Fix
-version=v3.0
-versionCode=3
-author=combeng6th
-description=Fixes broken brightness and adaptive brightness on custom Samsung OneUI ROMs and kernels where the lights HAL doesn't match the hardware. Stops the broken HAL and replaces it with a native daemon that reads the ambient light sensor directly.
-updateJson=https://raw.githubusercontent.com/combeng6th/oneui-brightness-fix/master/update.json
+name=OneUI ROM Brightness Fix (Modified by PL2B)
+version=v3.0.1
+versionCode=3.1
+author=combeng6th (original dev), Plate2Bacon
+description=Modified version of the original dev (Only for the normal Note20 N980/N981)
+updateJson=https://raw.githubusercontent.com/Plate2Bacon/modded-oneui-brightness-fix/master/update.json
