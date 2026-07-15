@@ -1,5 +1,10 @@
 # Changelog
 
+## Modified v3.0.1
+
+- Adding some specific values to the normal Note20
+- Adding some delays to the Light sensor data so that it should in a room that well-lid and your head just blocking the light to the light sensor causing it dim down the display even in well-lid area.
+
 ## v3.0
 
 - **Fixed bootloop caused by stopping the lights HAL service.** The `stop` command killed a binder service that system_server holds a live reference to, causing a fatal crash on boot. Reverted to permission-lockout only — the HAL process runs but cannot write to the backlight sysfs node. (Thanks to Ngo An Binh for help debugging this on the SM-N981N.)
