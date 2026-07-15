@@ -1,5 +1,5 @@
 # OneUI ROM Brightness Fix
-
+# WARNING: THIS IS A FORKED VERSION AND CONTAINS SOME OF THE SPECIFIC DATA FOR NORMAL NOTE20 5G SO IF YOU ARE ON OTHER MODELS (e.g: Note20 Ultra, etc) PLEASE CHECK OUT THE ORIGINAL BRIGHTNESS FIX FROM THIS DEVELOPER (https://github.com/combeng6th/oneui-brightness-fix). THANK YOU!
 A Magisk module that fixes broken brightness and adaptive brightness on Samsung devices running custom OneUI ROMs or kernels.
 
 ## Who this is for
