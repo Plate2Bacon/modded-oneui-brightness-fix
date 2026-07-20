@@ -4,6 +4,7 @@ This conatains some of the fixes (maybe more features) to the original brightnes
 - Stock One UI 5.1 brightness curve and calculations.
 - Replaced ASensorManager with Linux kernel file node lookups (/sys/class/sensors/light_sensor/lux).
 - And more feature in the future.....
+
 Here is the original readme
 ## Who this is for
 
