@@ -5,8 +5,8 @@ This conatains some of the fixes (maybe more features) to the original brightnes
 - Replaced ASensorManager with Linux kernel file node lookups (/sys/class/sensors/light_sensor/lux).
 - And more feature in the future.....
 
-Here is the original readme
-## Who this is for
+## Here is the original readme
+Who this is for
 
 If you're running a **custom ROM or kernel** on a Samsung phone and your brightness is stuck on max, your slider does nothing, or adaptive brightness doesn't work — this module is for you.
 
@@ -17,7 +17,7 @@ This commonly happens when:
 
 **This module is NOT needed if your stock brightness already works.** It's specifically for cases where the brightness system is broken.
 
-## What it does
+What it does
 
 When the brightness is broken on a custom ROM, it's usually because the lights HAL — the piece of software that translates "set brightness to 50%" into actual hardware commands — is sending the wrong values to your screen's backlight controller. On affected devices, the HAL typically writes maximum brightness regardless of what you set the slider to.
 
@@ -27,7 +27,7 @@ This module fixes that in two steps:
 
 2. **Runs its own brightness controller.** A small native daemon (~9KB) starts at boot and takes over. It reads your phone's ambient light sensor directly using Android's built-in sensor API and adjusts the screen brightness smoothly — just like the adaptive brightness you're used to on a stock ROM.
 
-### What works after installing
+What works after installing
 
 - **Adaptive brightness** — screen adjusts automatically based on ambient light
 - **Slider adjustments** — dragging the slider in auto mode shifts the brightness curve, just like stock (your adjustments are remembered)
@@ -53,7 +53,7 @@ While designed for the Snapdragon Note 20 Ultra running Astro-OS OneUI 8, the un
 - ARM64 device
 - Root access
 
-## Installation
+Installation
 
 1. Download `oneui-brightness-fix-v1.0.zip` from the [Releases](https://github.com/combeng6th/oneui-brightness-fix/releases) page
 2. Open **Magisk Manager** → **Modules** → **Install from storage**
