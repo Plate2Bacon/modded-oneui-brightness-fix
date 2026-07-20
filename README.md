@@ -1,7 +1,10 @@
 # OneUI ROM Brightness Fix
-# WARNING: THIS IS A FORKED VERSION AND CONTAINS SOME OF THE SPECIFIC DATA FOR NORMAL NOTE20 5G SO IF YOU ARE ON OTHER MODELS (e.g: Note20 Ultra, etc) PLEASE CHECK OUT THE ORIGINAL BRIGHTNESS FIX FROM THIS DEVELOPER (https://github.com/combeng6th/oneui-brightness-fix). THANK YOU!
-A Magisk module that fixes broken brightness and adaptive brightness on Samsung devices running custom OneUI ROMs or kernels.
-
+# WARNING: This is a forked version of the brightness fix from this developer:(https://github.com/combeng6th/oneui-brightness-fix). Really shout out for his incredible work!
+This conatains some of the fixes (maybe more features) to the original brightness fix, includes:
+- Stock One UI 5.1 brightness curve and calculations.
+- Replaced ASensorManager with Linux kernel file node lookups (/sys/class/sensors/light_sensor/lux).
+- And more feature in the future.....
+Here is the original readme
 ## Who this is for
 
 If you're running a **custom ROM or kernel** on a Samsung phone and your brightness is stuck on max, your slider does nothing, or adaptive brightness doesn't work — this module is for you.
