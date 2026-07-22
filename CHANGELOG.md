@@ -1,4 +1,12 @@
 # Changelog
+## v3.1
+
+Name like an incremental update to the original one.
+- Well, new release and new new (maybe working) features that blow your mind away
+Lux Hysteresis Deadzone (LUX_DEADZONE): Ignores minor changes in ambient light (under 8 lux) to stop the screen from constantly micro-flickering in stable lighting.
+Asymmetric Hardware Ramping (RAMP_DIV_UP & RAMP_DIV_DOWN): Uses dual-speed transitions to increase brightness instantly when walking into sunlight, while dimming the screen slowly and smoothly when moving into shadows.
+Dynamic Gear Shifting (ECO_FRAME_MS): Automatically drops the hardware polling rate from 150ms to 1000ms when the lighting environment is completely still, saving battery life.
+Maybe it should work across all snapdragon based samsung devices now!
 
 ## Modified v3.0.1
 
